@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CSV 메타데이터 간격 분석</title>
+    <style>
+      :root {
+        --bg: #0f1419;
+        --surface: #1a2332;
+        --border: #2d3a4f;
+        --text: #e7ecf3;
+        --muted: #8b9cb3;
+        --accent: #5b9fd4;
+        --ok: #6bcb77;
+        --warn: #e6b35a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Pretendard", "Apple SD Gothic Neo", system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+      }
+      .wrap {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 2rem 1.25rem 3rem;
+      }
+      h1 {
+        font-size: 1.35rem;
+        font-weight: 600;
+        margin: 0 0 0.35rem;
+        letter-spacing: -0.02em;
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 0.9rem;
+        margin-bottom: 1.5rem;
+      }
+      .panel {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.25rem 1.35rem;
+        margin-bottom: 1.25rem;
+      }
+      .drop {
+        border: 2px dashed var(--border);
+        border-radius: 10px;
+        padding: 2rem 1rem;
+        text-align: center;
+        color: var(--muted);
+        cursor: pointer;
+        transition: border-color 0.15s, background 0.15s;
+      }
+      .drop:hover,
+      .drop.drag {
+        border-color: var(--accent);
+        background: rgba(91, 159, 212, 0.06);
+        color: var(--text);
+      }
+      .drop strong {
+        color: var(--accent);
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        align-items: flex-end;
+        margin-top: 1rem;
+      }
+      label.field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      input[type="date"],
+      input[type="file"] {
+        font: inherit;
+        color: var(--text);
+      }
+      input[type="date"] {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.45rem 0.65rem;
+      }
+      button.primary {
+        font: inherit;
+        font-weight: 600;
+        padding: 0.55rem 1.2rem;
+        border: none;
+        border-radius: 8px;
+        background: var(--accent);
+        color: #0a0e14;
+        cursor: pointer;
+      }
+      button.primary:hover {
+        filter: brightness(1.08);
+      }
+      button.primary:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .stats {
+        display: grid;
+        gap: 0.75rem;
+      }
+      .stat-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 0.65rem;
+      }
+      .stat {
+        background: var(--bg);
+        border-radius: 8px;
+        padding: 0.65rem 0.75rem;
+        border: 1px solid var(--border);
+      }
+      .stat .k {
+        font-size: 0.72rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .stat .v {
+        font-size: 1.05rem;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 0.5rem 0.6rem;
+        border-bottom: 1px solid var(--border);
+      }
+      th {
+        color: var(--muted);
+        font-weight: 500;
+      }
+      .err {
+        color: #f08080;
+        font-size: 0.9rem;
+      }
+      .note {
+        color: var(--warn);
+        font-size: 0.85rem;
+        margin-top: 0.5rem;
+      }
+      details {
+        margin-top: 0.75rem;
+      }
+      summary {
+        cursor: pointer;
+        color: var(--accent);
+        font-size: 0.88rem;
+      }
+      .gap-list {
+        max-height: 220px;
+        overflow: auto;
+        font-family: ui-monospace, monospace;
+        font-size: 0.78rem;
+        margin-top: 0.5rem;
+        color: var(--muted);
+      }
+      footer {
+        margin-top: 2rem;
+        font-size: 0.78rem;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>CSV 메타데이터 간격 분석</h1>
+      <p class="sub">
+        <strong>신규 Tailing CSV</strong>: 1행 <code>hub_id,device_mac,start_time,end_time</code> →
+        2행 세션 값(<code>start_time</code>은 <code>YYMMDD-HH:mm:ss:SSS</code>, KST) →
+        3행 <code>timestamp,ir,red,green,hr,spo2,temp,battery,gyro</code> → 이후 데이터.
+        데이터 <code>timestamp</code>는 시각만 있으며 <strong>자정 넘김 시 일 단위로 자동 증가</strong>해 해석합니다.
+        <br /><strong>갭(배치)</strong>: 실측 vitals가 있는 행(숫자 HR·spo2·temp 등)을 앵커로 하되,
+        <code>Poor Signal</code>만 있고 spo2/temp가 비어 있으면 앵커에서 제외합니다.
+        <br /><strong>PPG 샘플링</strong>: 연속 행 timestamp 간격(ms) 통계로 샘플 주기를 디버깅합니다.
+        구형(단일 헤더·행마다 hub) CSV도 그대로 지원합니다. 쉼표/탭 모두 가능합니다.
+      </p>
+
+      <div class="panel">
+        <div id="drop" class="drop" tabindex="0" role="button" aria-label="CSV 파일 놓기">
+          <div id="dropTitle">
+            <strong>CSV 파일을 여기에 놓거나</strong> 클릭하여 선택
+          </div>
+          <span id="dropHint" style="font-size: 0.85rem; display: block; margin-top: 0.35rem">
+            여러 파일 동시 선택 가능 · <code>*_vitals.csv</code>는 건너뜀
+          </span>
+        </div>
+        <input type="file" id="file" accept=".csv,text/csv" multiple hidden />
+
+        <div class="row">
+          <label class="field">
+            기준 날짜 (KST)
+            <input type="date" id="baseDate" title="timestamp가 HH:mm:ss:SSS만 있을 때" />
+          </label>
+          <label class="field">
+            갭 권장 상한 (초)
+            <input
+              type="number"
+              id="clipGap"
+              value="600"
+              min="0"
+              step="1"
+              title="갭(배치) 통계에서 이보다 긴 간격 제외. 0이면 미사용"
+            />
+          </label>
+          <label class="field">
+            PPG 상한 (초)
+            <input
+              type="number"
+              id="clipPpg"
+              value="1"
+              min="0"
+              step="0.01"
+              title="PPG 연속 간격 통계에서 초과 구간 제외(끊김). 예: 0.05"
+            />
+          </label>
+          <span style="font-size: 0.8rem; color: var(--muted); max-width: 240px">
+            날짜 비우면 파일명의 <code>YYYY-MM-DD</code> 또는 <code>YYYYMMDD</code> 사용.
+          </span>
+          <button type="button" class="primary" id="run" disabled>분석</button>
+        </div>
+      </div>
+
+      <div id="out" class="panel" style="display: none">
+        <h2 style="font-size: 1rem; margin: 0 0 1rem">요약</h2>
+        <div id="overall" class="stats"></div>
+        <div id="stChange" style="margin-top: 0.75rem; font-size: 0.9rem"></div>
+        <h2 style="font-size: 1rem; margin: 1.25rem 0 0.65rem">파일별</h2>
+        <div style="overflow-x: auto">
+          <table>
+            <thead>
+              <tr>
+                <th>파일</th>
+                <th>세션</th>
+                <th>행 수</th>
+                <th>PPG 중앙(s)</th>
+                <th>n 갭(권장)</th>
+                <th>갭 평균(s)</th>
+                <th>갭 중앙(s)</th>
+                <th>갭 길이 제외</th>
+                <th>n 갭 전체</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+        <h2 style="font-size: 1rem; margin: 1.25rem 0 0.65rem">세션별 (디버그)</h2>
+        <div style="overflow-x: auto">
+          <table>
+            <thead>
+              <tr>
+                <th>파일</th>
+                <th>헤더 줄</th>
+                <th>hub_id</th>
+                <th>device</th>
+                <th>ppg_only</th>
+                <th>poor_sig</th>
+                <th>vitals</th>
+                <th>갭 앵커</th>
+                <th>자정↑</th>
+              </tr>
+            </thead>
+            <tbody id="tbodySess"></tbody>
+          </table>
+        </div>
+        <div id="alerts"></div>
+      </div>
+
+      <div id="empty" class="panel err" style="display: none"></div>
+
+      <footer>
+        로컬에서만 처리됩니다. 서버로 파일이 전송되지 않습니다.
+        <br />
+        열기: 이 폴더에서 <code>python3 -m http.server 8765</code> 후
+        <a href="http://127.0.0.1:8765/" style="color: var(--accent)">http://127.0.0.1:8765/</a>
+        또는 <code>index.html</code>을 브라우저로 직접 열기 (<code>web/</code> 디렉터리 기준).
+      </footer>
+    </div>
+
+    <script src="ui.js" defer></script>
+  </body>
+</html>
