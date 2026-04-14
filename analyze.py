@@ -11,6 +11,10 @@ Tailing / hub_project CSV 간격·샘플링 분석.
 
 2) 구형(단일 헤더): 각 행에 timestamp·hr·spo2·temp (및 선택 hub_id,device_mac).
 
+3) 허브보내기(2줄 MAC + 데이터): 첫 줄 hub_mac_address,device_mac_address → 둘째 줄 MAC 값
+   → 셋째 줄 timestamp,ir,red,green,hr,spo2,temp,battery,gyro → 이후 데이터
+   (세션 start_time 없음 → --base-date 또는 파일명 YYYYMMDD 로 time-only 해석)
+
 갭 정의: 배치 끝으로 보는 행(row_is_gap_anchor)의 timestamp → 바로 다음 행 timestamp 차이.
   - Poor Signal 만 있고 spo2/temp 도 비어 있으면 앵커에서 제외(과도한 소간격 샘플 방지).
   - spo2/temp 중 실값이 있으면 Poor Signal 행도 앵커 가능.
@@ -230,6 +234,14 @@ def is_new_format_preamble(header_lower: list[str]) -> bool:
     )
 
 
+def is_hub_mac_pair_preamble(header_lower: list[str]) -> bool:
+    """hub_mac_address,device_mac_address 형(허브 Records보내기 등)."""
+    if not header_lower or "timestamp" in header_lower:
+        return False
+    joined = ",".join(header_lower)
+    return "hub_mac" in joined and "device_mac" in joined
+
+
 def col_idx(header_lower: list[str], *names: str) -> Optional[int]:
     for n in names:
         if n in header_lower:
@@ -304,12 +316,53 @@ def parse_sessions_from_rows(
             )
             i = j
             continue
+
+        if is_hub_mac_pair_preamble(hlow):
+            if i + 2 >= n:
+                i += 1
+                continue
+            _, mac_row = rows[i + 1]
+            ln_hdr2, hdr2 = rows[i + 2]
+            h2 = [strip_cell(c).lower() for c in hdr2]
+            if "timestamp" not in h2:
+                i += 1
+                continue
+
+            hub = strip_cell(mac_row[0]) if mac_row else ""
+            dev = strip_cell(mac_row[1]) if len(mac_row) > 1 else ""
+
+            data: list[tuple[int, list[str]]] = []
+            j = i + 3
+            while j < n:
+                lnj, rj = rows[j]
+                if not rj:
+                    j += 1
+                    continue
+                c0 = strip_cell(rj[0]).lower() if rj else ""
+                if c0 in ("hub_id", "hub_mac_address") and len(rj) <= 6:
+                    break
+                data.append((lnj, rj))
+                j += 1
+
+            sessions.append(
+                SessionBlock(
+                    hub_id=hub,
+                    device_mac=dev,
+                    start_time_raw="",
+                    end_time_raw="",
+                    header_lower=h2,
+                    data_rows=data,
+                    source_line_preamble=ln,
+                )
+            )
+            i = j
+            continue
         i += 1
 
     if sessions:
         return sessions, []
 
-    # 구형: 첫 비어 있지 않은 행을 헤더로
+    # 구형: 첫 비어 있지 않은 행을 헤더로 (그 위에 임의 프리앰블이 있으면 스킵)
     for idx, (ln, row) in enumerate(rows):
         if not row or not any(strip_cell(c) for c in row):
             continue
@@ -330,7 +383,7 @@ def parse_sessions_from_rows(
                 ],
                 [],
             )
-        break
+        continue
 
     return [], rows
 

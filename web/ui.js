@@ -219,6 +219,13 @@
     return hlow.indexOf("hub_id") !== -1 && hlow.indexOf("start_time") !== -1 && hlow.indexOf("timestamp") === -1;
   }
 
+  /** hub_mac_address,device_mac_address + 값 1줄 + timestamp 헤더 (Tailing Records 등) */
+  function isHubMacPairPreamble(hlow) {
+    if (!hlow || !hlow.length || hlow.indexOf("timestamp") !== -1) return false;
+    const joined = hlow.join(",");
+    return joined.includes("hub_mac") && joined.includes("device_mac");
+  }
+
   function parseSessionsFromRows(rows) {
     const sessions = [];
     let i = 0;
@@ -282,6 +289,46 @@
         i = j;
         continue;
       }
+
+      if (isHubMacPairPreamble(hlow)) {
+        if (i + 2 >= n) {
+          i++;
+          continue;
+        }
+        const macRow = rows[i + 1];
+        const hdr2 = rows[i + 2];
+        const h2 = hdr2.map((c) => String(c).trim().toLowerCase());
+        if (h2.indexOf("timestamp") === -1) {
+          i++;
+          continue;
+        }
+        const hub = macRow && macRow.length ? stripCell(macRow[0]) : "";
+        const dev = macRow && macRow.length > 1 ? stripCell(macRow[1]) : "";
+        const data = [];
+        let j = i + 3;
+        while (j < n) {
+          const rj = rows[j];
+          if (!rj || !rj.length) {
+            j++;
+            continue;
+          }
+          const c0 = stripCell(rj[0]).toLowerCase();
+          if ((c0 === "hub_id" || c0 === "hub_mac_address") && rj.length <= 6) break;
+          data.push({ line: j + 1, row: rj });
+          j++;
+        }
+        sessions.push({
+          hub_id: hub,
+          device_mac: dev,
+          start_time_raw: "",
+          end_time_raw: "",
+          header_lower: h2,
+          data_rows: data,
+          preambleLine: i + 1,
+        });
+        i = j;
+        continue;
+      }
       i++;
     }
 
@@ -305,7 +352,7 @@
           },
         ];
       }
-      break;
+      continue;
     }
     return [];
   }
@@ -615,7 +662,7 @@
         "</span>";
     } else {
       dropHint.innerHTML =
-        '여러 CSV 선택 가능 · <code>*_vitals.csv</code> 건너뜀 · 신규 형식은 파일 상단 <code>hub_id,start_time,…</code>';
+        '여러 CSV 선택 가능 · <code>*_vitals.csv</code> 건너뜀 · 상단 <code>hub_id,start_time,…</code> 또는 <code>hub_mac_address,device_mac_address</code>+MAC 1줄';
     }
   }
 
