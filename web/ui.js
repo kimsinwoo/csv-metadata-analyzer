@@ -503,6 +503,24 @@
         "갭 앵커 행 없음. PPG 연속 간격·행 분류(ppg_only / poor_signal / vitals)를 확인하세요.";
     }
 
+    /** 타임스탬프(ep) 해석 가능 + 숫자 HR (Poor Signal 제외) — 그래프용 */
+    const hrPoints = [];
+    for (let j = 0; j < prepared.length; j++) {
+      const p = prepared[j];
+      if (p.ep == null) continue;
+      const r = p.row;
+      if (r.length <= iHr) continue;
+      const hrCell = stripCell(r[iHr]);
+      if (poorSignalHr(hrCell)) continue;
+      const hrN = parseFloat(String(hrCell).replace(/,/g, ""));
+      if (!Number.isFinite(hrN) || hrN < 15 || hrN > 350) continue;
+      hrPoints.push({ ep: p.ep, hr: hrN, line: p.line });
+    }
+    hrPoints.sort(function (a, b) {
+      return a.ep - b.ep;
+    });
+    meta.hr_points = hrPoints;
+
     return { gaps, ppgDeltas, meta };
   }
 
@@ -615,6 +633,141 @@
       .replace(/"/g, "&quot;");
   }
 
+  function formatKstTimeLabel(epochMs) {
+    try {
+      return new Intl.DateTimeFormat("ko-KR", {
+        timeZone: "Asia/Seoul",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      }).format(new Date(epochMs));
+    } catch {
+      return String(epochMs);
+    }
+  }
+
+  /**
+   * @param {HTMLCanvasElement} canvas
+   * @param {{ ep: number, hr: number, line: number }[]} points
+   */
+  function drawHrLineChart(canvas, points) {
+    if (!points || points.length < 2) return;
+    const wrap = canvas.parentElement;
+    const w = Math.max(280, (wrap && wrap.clientWidth) || 640);
+    const cssH = 220;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.floor(w * dpr);
+    canvas.height = Math.floor(cssH * dpr);
+    canvas.style.width = w + "px";
+    canvas.style.height = cssH + "px";
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(dpr, dpr);
+
+    const padL = 50;
+    const padR = 12;
+    const padT = 18;
+    const padB = 38;
+    const chartW = w - padL - padR;
+    const chartH = cssH - padT - padB;
+
+    const hrs = points.map(function (p) {
+      return p.hr;
+    });
+    const eps = points.map(function (p) {
+      return p.ep;
+    });
+    let minEp = eps[0];
+    let maxEp = eps[eps.length - 1];
+    if (maxEp - minEp < 500) {
+      minEp -= 400;
+      maxEp += 400;
+    }
+    let minHr = Math.min.apply(null, hrs);
+    let maxHr = Math.max.apply(null, hrs);
+    minHr = Math.floor(Math.min(minHr - 4, 45));
+    maxHr = Math.ceil(Math.max(maxHr + 4, 125));
+    if (maxHr <= minHr) maxHr = minHr + 30;
+
+    ctx.fillStyle = "#0f1419";
+    ctx.fillRect(0, 0, w, cssH);
+
+    function xScale(ep) {
+      const den = maxEp - minEp || 1;
+      return padL + ((ep - minEp) / den) * chartW;
+    }
+    function yScale(hr) {
+      const den = maxHr - minHr || 1;
+      return padT + chartH - ((hr - minHr) / den) * chartH;
+    }
+
+    ctx.strokeStyle = "#2d3a4f";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(padL, padT, chartW, chartH);
+
+    const yTicks = 4;
+    ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
+    for (let t = 0; t <= yTicks; t++) {
+      const v = minHr + ((maxHr - minHr) * t) / yTicks;
+      const y = padT + chartH - (chartH * t) / yTicks;
+      ctx.beginPath();
+      ctx.strokeStyle = t === 0 || t === yTicks ? "#3d4f66" : "#243044";
+      ctx.moveTo(padL, y);
+      ctx.lineTo(padL + chartW, y);
+      ctx.stroke();
+      ctx.fillStyle = "#8b9cb3";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(Math.round(v)), padL - 8, y);
+    }
+
+    ctx.strokeStyle = "#5b9fd4";
+    ctx.lineWidth = 1.75;
+    ctx.beginPath();
+    for (let i = 0; i < points.length; i++) {
+      const x = xScale(points[i].ep);
+      const y = yScale(points[i].hr);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    if (points.length < 1200) {
+      ctx.fillStyle = "rgba(91, 159, 212, 0.45)";
+      for (let i = 0; i < points.length; i++) {
+        const x = xScale(points[i].ep);
+        const y = yScale(points[i].hr);
+        ctx.beginPath();
+        ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    const xTickCount = Math.min(5, Math.max(2, Math.floor(chartW / 130)));
+    ctx.fillStyle = "#8b9cb3";
+    ctx.font = "10px ui-sans-serif, system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    for (let t = 0; t < xTickCount; t++) {
+      const ep = minEp + ((maxEp - minEp) * t) / (xTickCount <= 1 ? 1 : xTickCount - 1);
+      const x = xScale(ep);
+      ctx.fillText(formatKstTimeLabel(ep), x, padT + chartH + 6);
+    }
+
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "#e7ecf3";
+    ctx.font = "600 12px ui-sans-serif, system-ui, sans-serif";
+    ctx.fillText("HR (bpm)", 6, 4);
+    ctx.font = "10px ui-sans-serif, system-ui, sans-serif";
+    ctx.fillStyle = "#6bcb77";
+    ctx.fillText("n = " + points.length, 6, 20);
+  }
+
   const drop = document.getElementById("drop");
   const dropHint = document.getElementById("dropHint");
   const fileInput = document.getElementById("file");
@@ -628,6 +781,8 @@
   const tbody = document.getElementById("tbody");
   const tbodySess = document.getElementById("tbodySess");
   const alerts = document.getElementById("alerts");
+  const hrCharts = document.getElementById("hrCharts");
+  const hrChartsInner = document.getElementById("hrChartsInner");
   const stChange = document.getElementById("stChange");
 
   let pending = [];
@@ -766,6 +921,8 @@
   runBtn.addEventListener("click", function () {
     empty.style.display = "none";
     out.style.display = "none";
+    if (hrCharts) hrCharts.style.display = "none";
+    if (hrChartsInner) hrChartsInner.innerHTML = "";
     const manualBase = baseDateEl.value || "";
     const clipParsed = parseFloat(String(clipGapEl.value || "0"), 10);
     const clipSec = !Number.isNaN(clipParsed) && clipParsed > 0 ? clipParsed : 0;
@@ -827,6 +984,7 @@
     if (errLines.length && !fileReports.length) {
       empty.textContent = errLines.join("\n");
       empty.style.display = "block";
+      if (hrCharts) hrCharts.style.display = "none";
       return;
     }
 
@@ -1006,6 +1164,50 @@
       }
     }
     alerts.innerHTML = alertHtml;
+
+    if (hrChartsInner && hrCharts) {
+      hrChartsInner.innerHTML = "";
+      let anyHr = false;
+      for (let fi = 0; fi < fileReports.length; fi++) {
+        const fr = fileReports[fi];
+        const reps = fr.session_reports || [];
+        let fileHasChart = false;
+        const fileBlock = document.createElement("div");
+        fileBlock.className = "hr-file-block";
+        const h3 = document.createElement("h3");
+        h3.textContent = fr.path;
+        fileBlock.appendChild(h3);
+
+        for (let si = 0; si < reps.length; si++) {
+          const sm = reps[si];
+          if (!sm || sm.error) continue;
+          const pts = sm.hr_points;
+          if (!pts || pts.length < 2) continue;
+          anyHr = true;
+          fileHasChart = true;
+          const sess = document.createElement("div");
+          sess.className = "hr-session";
+          const meta = document.createElement("div");
+          meta.className = "meta";
+          meta.textContent =
+            "세션 헤더 줄 L" +
+            (sm.session_preamble_line || "?") +
+            " · 유효 HR 포인트 " +
+            pts.length +
+            "개 (Poor Signal·비숫자 제외)";
+          sess.appendChild(meta);
+          const wrap = document.createElement("div");
+          wrap.className = "hr-chart-wrap";
+          const cv = document.createElement("canvas");
+          wrap.appendChild(cv);
+          sess.appendChild(wrap);
+          fileBlock.appendChild(sess);
+          drawHrLineChart(cv, pts);
+        }
+        if (fileHasChart) hrChartsInner.appendChild(fileBlock);
+      }
+      hrCharts.style.display = anyHr ? "block" : "none";
+    }
 
     out.style.display = "block";
   });

@@ -175,6 +175,51 @@
         margin-top: 0.5rem;
         color: var(--muted);
       }
+      #hrCharts {
+        margin-top: 1.25rem;
+      }
+      #hrCharts h2 {
+        font-size: 1rem;
+        margin: 0 0 0.35rem;
+      }
+      #hrCharts .hr-lead {
+        color: var(--muted);
+        font-size: 0.85rem;
+        margin: 0 0 1rem;
+        line-height: 1.45;
+      }
+      .hr-file-block {
+        margin-bottom: 1.5rem;
+      }
+      .hr-file-block h3 {
+        font-size: 0.92rem;
+        font-weight: 600;
+        margin: 0 0 0.5rem;
+        color: var(--accent);
+        word-break: break-all;
+      }
+      .hr-session {
+        margin-bottom: 1rem;
+        padding: 0.75rem 0.85rem;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+      }
+      .hr-session .meta {
+        font-size: 0.78rem;
+        color: var(--muted);
+        margin-bottom: 0.5rem;
+      }
+      .hr-chart-wrap {
+        width: 100%;
+        overflow-x: auto;
+      }
+      .hr-chart-wrap canvas {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        height: 220px;
+      }
       footer {
         margin-top: 2rem;
         font-size: 0.78rem;
@@ -284,6 +329,16 @@
           </table>
         </div>
         <div id="alerts"></div>
+
+        <div id="hrCharts" style="display: none">
+          <h2>심박수 (HR) 시계열</h2>
+          <p class="hr-lead">
+            CSV 데이터 행의 <code>hr</code> 열과 해석된 시각(<code>timestamp</code> + 세션/기준일)을 사용합니다.
+            <strong>Poor Signal</strong>·비숫자·범위 밖(15~350 bpm 외) 값은 제외합니다. 시각을 파싱하지 못한 행은 그래프에
+            포함되지 않습니다.
+          </p>
+          <div id="hrChartsInner"></div>
+        </div>
       </div>
 
       <div id="empty" class="panel err" style="display: none"></div>
